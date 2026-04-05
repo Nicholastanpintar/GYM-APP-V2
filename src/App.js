@@ -407,7 +407,61 @@ export default function App() {
             {tab === "dash" && hasEx && <div style={{ padding: "0 16px 8px", display: "flex", gap: 8, animation: "fadeIn .3s ease" }}><div style={{ flex: 1, background: "#14141F", borderRadius: 12, padding: "12px", border: "1px solid #1E1E2E", textAlign: "center" }}><p style={{ fontSize: 28, fontWeight: 700, color: streak >= 4 ? "#FF3B30" : streak >= 2 ? "#FF9500" : "#888", fontFamily: "'Oswald',sans-serif" }}>{streak}</p><p style={{ fontSize: 10, color: "#888", fontWeight: 600 }}>week streak</p></div><div style={{ flex: 1, background: "#14141F", borderRadius: 12, padding: "12px", border: "1px solid #1E1E2E", textAlign: "center" }}><p style={{ fontSize: 28, fontWeight: 700, color: "#34C759", fontFamily: "'Oswald',sans-serif" }}>{Object.values(data.logs || {}).reduce((a, l) => a + l.length, 0)}</p><p style={{ fontSize: 10, color: "#888", fontWeight: 600 }}>total logs</p></div></div>}
             {tab === "dash" && plateaus.length > 0 && <div style={{ padding: "0 16px 8px" }}><div style={{ background: "linear-gradient(135deg,#FF950015,#FF950025)", border: "1px solid #FF950040", borderRadius: 12, padding: "12px 14px" }}><p style={{ fontSize: 11, fontWeight: 700, color: "#FF9500", letterSpacing: 1, marginBottom: 6, textTransform: "uppercase" }}>Plateau Alert</p>{plateaus.slice(0, 3).map((p, i) => <div key={i} style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}><span style={{ fontSize: 12, color: "#ccc" }}>{p.name}</span><span style={{ fontSize: 11, color: "#FF9500" }}>Stuck at {p.best} kg</span></div>)}<p style={{ fontSize: 11, color: "#888", marginTop: 6 }}>Try changing variation or rep range.</p></div></div>}
 
-            {/* DASHBOARD */}
+            {/* MUSCLE PROGRESSION */}
+            {tab === "dash" && hasEx && (() => {
+              const muscleRanks = BP.filter(b => b.id !== "cardio").map(bp => {
+                let totalRank = 0, count = 0;
+                bp.rg.forEach(rg => {
+                  const exs = data.selectedExercises[rg.id] || [];
+                  exs.forEach((_, j) => {
+                    const inf = gER(rg.id, j);
+                    if (inf && inf.rank > 0) { totalRank += inf.rank; count++; }
+                  });
+                });
+                const avg = count > 0 ? totalRank / count : 0;
+                return { l: bp.l, i: bp.i, c: bp.c, avg, rank: Math.round(avg), count };
+              }).filter(m => m.count > 0);
+              if (muscleRanks.length === 0) return null;
+              const maxAvg = Math.max(...muscleRanks.map(m => m.avg), 1);
+              const sorted = [...muscleRanks].sort((a, b) => b.avg - a.avg);
+              return (
+                <div style={{ padding: "0 16px 8px", animation: "fadeIn .3s ease" }}>
+                  <p style={{ fontSize: 11, color: "#888", fontWeight: 700, letterSpacing: 1, marginBottom: 8, textTransform: "uppercase" }}>Muscle Progression</p>
+                  <div style={{ background: "#14141F", borderRadius: 14, padding: "14px 16px", border: "1px solid #1E1E2E" }}>
+                    {sorted.map(m => {
+                      const rk = RK[m.rank] || RK[0];
+                      const pct = (m.avg / 7) * 100;
+                      return (
+                        <div key={m.l} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                          <div style={{ width: 22, display: "flex", justifyContent: "center" }}><I t={m.i} s={18} c={m.c} /></div>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                              <span style={{ fontSize: 12, color: "#ccc", fontWeight: 600 }}>{m.l}</span>
+                              <span style={{ fontSize: 11, color: rk.c, fontWeight: 700 }}>{rk.l}</span>
+                            </div>
+                            <div style={{ width: "100%", height: 6, background: "#1E1E2E", borderRadius: 3, overflow: "hidden" }}>
+                              <div style={{ height: "100%", width: `${pct}%`, background: `linear-gradient(90deg, ${m.c}88, ${m.c})`, borderRadius: 3, transition: "width .5s ease" }} />
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {sorted.length >= 2 && (() => {
+                      const best = sorted[0];
+                      const worst = sorted[sorted.length - 1];
+                      return (
+                        <div style={{ marginTop: 8, padding: "8px 0 0", borderTop: "1px solid #1E1E2E" }}>
+                          <p style={{ fontSize: 11, color: "#888" }}>
+                            Strongest: <span style={{ color: best.c, fontWeight: 700 }}>{best.l}</span>
+                            {best.l !== worst.l && <> · Needs work: <span style={{ color: worst.c, fontWeight: 700 }}>{worst.l}</span></>}
+                          </p>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+              );
+            })()}
             {tab === "dash" && (
               <div style={{ animation: "fadeIn .3s ease" }}>
                 {!hasEx ? <div style={{ textAlign: "center", padding: "60px 20px" }}><I t="dumbbell" s={48} c="#333" /><p style={{ color: "#555", marginTop: 16, fontSize: 14 }}>No exercises selected.</p><button className="tap" style={{ ...st.pb, marginTop: 16, maxWidth: 200 }} onClick={() => sTab("setup")}>Choose Exercises</button></div> :
