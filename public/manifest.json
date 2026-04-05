@@ -1,0 +1,9 @@
+{
+  "short_name": "APEX GYM",
+  "name": "APEX Gym Progression App",
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#0A0A0F",
+  "background_color": "#0A0A0F",
+  "icons": []
+}
