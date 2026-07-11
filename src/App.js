@@ -188,6 +188,7 @@ function WorkoutMode({ dayPlan, data, save, onEnd, sT }) {
   const [sN, sSN] = useState(0);
   const [rT, sRT] = useState(0);
   const [rL, sRL] = useState(0);
+  const [restEndAt, sREA] = useState(null);
   const [bW, sBW] = useState("");
   const [bR, sBR] = useState("");
   const [cD, sCD] = useState("");
@@ -198,17 +199,49 @@ function WorkoutMode({ dayPlan, data, save, onEnd, sT }) {
 
   const cur = allEx[eI];
   const nS = cur ? getSets(cur.name) : 3;
-  const rest = cur ? getRestSec(cur.name) : 90;
+  const autoRest = cur ? getRestSec(cur.name) : 90;
+  const defaultRest = data?.settings?.restSeconds;
+  const rest = defaultRest ?? autoRest;
   const wW = cur?.lastWeight ? Math.round(cur.lastWeight * .5 / 2.5) * 2.5 : 0;
   const tW = cur?.lastWeight ? suggestW(cur.logs) : null;
   const tips = cur ? FG[cur.name] : null;
+  const notifOn = !!data?.settings?.notifications && typeof Notification !== "undefined" && Notification.permission === "granted";
 
   useEffect(() => {
-    if (phase !== "rest") return;
-    if (rL <= 0) { sP("working"); sSN(n => n + 1); return; }
-    const t = setTimeout(() => sRL(r => r - 1), 1000);
-    return () => clearTimeout(t);
-  }, [phase, rL]);
+    if (phase !== "rest" || !restEndAt) return;
+    const tick = () => {
+      const remain = Math.max(0, Math.round((restEndAt - Date.now()) / 1000));
+      sRL(remain);
+      if (remain <= 0) {
+        sP("working"); sSN(n => n + 1);
+        if (notifOn) { try { new Notification("Rest complete", { body: cur ? `Back to ${cur.name}` : "Time for your next set", tag: "apex-rest" }); } catch {} }
+        if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+      }
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    document.addEventListener("visibilitychange", tick);
+    return () => { clearInterval(id); document.removeEventListener("visibilitychange", tick); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, restEndAt]);
+
+  const startRest = () => { sRT(rest); sRL(rest); sREA(Date.now() + rest * 1000); sP("rest"); };
+  const adjustRest = delta => { sREA(e => Math.max(Date.now() + 1000, (e || Date.now()) + delta * 1000)); sRT(t => Math.max(15, t + delta)); };
+  const setDefaultRest = val => save({ ...data, settings: { ...(data.settings || {}), restSeconds: val } });
+  const toggleNotif = async () => {
+    if (typeof Notification === "undefined") { sT("Not supported"); return; }
+    if (Notification.permission === "granted") {
+      const on = !data?.settings?.notifications;
+      save({ ...data, settings: { ...(data.settings || {}), notifications: on } });
+      sT(on ? "Notifications on" : "Notifications off");
+    } else if (Notification.permission === "denied") {
+      sT("Blocked in browser settings");
+    } else {
+      const perm = await Notification.requestPermission();
+      if (perm === "granted") { save({ ...data, settings: { ...(data.settings || {}), notifications: true } }); sT("Notifications on"); }
+      else sT("Permission denied");
+    }
+  };
 
   const startEx = () => { if (cur.isCardio) sP("cardio"); else if (cur.lastWeight > 0) sP("warmup"); else { sP("working"); sSN(1); } };
 
@@ -271,7 +304,10 @@ function WorkoutMode({ dayPlan, data, save, onEnd, sT }) {
       <div style={{ padding: "44px 20px 12px", flexShrink: 0 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
           <button className="tap" style={{ ...st.bb, marginBottom: 0 }} onClick={onEnd}>End</button>
-          <span style={{ fontSize: 11, color: "#888" }}>{eI + 1}/{allEx.length}</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            {typeof Notification !== "undefined" && <button className="tap" onClick={toggleNotif} title="Rest notifications" style={{ background: "none", border: "none", fontSize: 16, padding: 0, cursor: "pointer", lineHeight: 1 }}>{notifOn ? "🔔" : "🔕"}</button>}
+            <span style={{ fontSize: 11, color: "#888" }}>{eI + 1}/{allEx.length}</span>
+          </div>
         </div>
         <div style={{ width: "100%", height: 3, background: "#1E1E2E", borderRadius: 2, overflow: "hidden" }}><div style={{ height: "100%", width: `${prog}%`, background: "#FF3B30", borderRadius: 2, transition: "width .3s" }} /></div>
       </div>
@@ -290,7 +326,12 @@ function WorkoutMode({ dayPlan, data, save, onEnd, sT }) {
               <p style={{ fontSize: 14, color: "#fff", marginBottom: 6 }}>{nS} sets × 8-12 reps</p>
               {tW && <p style={{ fontSize: 14, color: "#34C759" }}>Target: {tW} kg</p>}
               {!tW && <p style={{ fontSize: 13, color: "#666" }}>Start light</p>}
-              <p style={{ fontSize: 12, color: "#555", marginTop: 8 }}>Rest: {rest}s</p>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginTop: 10 }}>
+                <button className="tap" onClick={() => setDefaultRest(Math.max(15, rest - 15))} style={{ padding: "6px 12px", borderRadius: 8, background: "#1C1C2E", border: "1px solid #2A2A3E", color: "#888", fontSize: 12, fontWeight: 700 }}>−15s</button>
+                <span style={{ fontSize: 12, color: "#888" }}>Rest: {rest}s</span>
+                <button className="tap" onClick={() => setDefaultRest(rest + 15)} style={{ padding: "6px 12px", borderRadius: 8, background: "#1C1C2E", border: "1px solid #2A2A3E", color: "#888", fontSize: 12, fontWeight: 700 }}>+15s</button>
+                {defaultRest != null && <button className="tap" onClick={() => setDefaultRest(null)} style={{ padding: "6px 10px", borderRadius: 8, background: "transparent", border: "1px solid #2A2A3E", color: "#666", fontSize: 11 }}>Auto</button>}
+              </div>
             </div>}
             {tips && <div style={{ background: "#14141F", borderRadius: 16, padding: 16, marginBottom: 12, border: "1px solid #1E1E2E", textAlign: "left" }}>
               <p style={{ fontSize: 11, color: "#AF52DE", fontWeight: 700, letterSpacing: 1, marginBottom: 8, textTransform: "uppercase" }}>Form Tips</p>
@@ -304,8 +345,8 @@ function WorkoutMode({ dayPlan, data, save, onEnd, sT }) {
           </div>
         )}
         {phase === "warmup" && <div style={{ animation: "fadeIn .3s ease", textAlign: "center" }}><div style={{ background: "linear-gradient(135deg,#FFD70015,#FFD70030)", border: "1px solid #FFD70040", borderRadius: 16, padding: 24, marginBottom: 16 }}><p style={{ fontSize: 12, color: "#FFD700", fontWeight: 700, textTransform: "uppercase", marginBottom: 8 }}>Warm-up</p><p style={{ fontSize: 36, fontWeight: 700, color: "#fff", fontFamily: "'Oswald',sans-serif" }}>{wW} kg</p><p style={{ fontSize: 16, color: "#ccc", marginTop: 4 }}>× 10 reps</p></div><button className="tap" style={st.pb} onClick={() => { sP("working"); sSN(1); }}>Start Working Sets</button></div>}
-        {phase === "working" && <div style={{ animation: "fadeIn .3s ease", textAlign: "center" }}><div style={{ background: "linear-gradient(135deg,#FF3B3015,#FF3B3030)", border: "1px solid #FF3B3040", borderRadius: 16, padding: 24, marginBottom: 16 }}><p style={{ fontSize: 12, color: "#FF3B30", fontWeight: 700, textTransform: "uppercase", marginBottom: 4 }}>Set {sN}/{nS}</p>{tW ? <p style={{ fontSize: 40, fontWeight: 700, color: "#fff", fontFamily: "'Oswald',sans-serif" }}>{tW} kg</p> : <p style={{ fontSize: 20, color: "#ccc" }}>Your weight</p>}<p style={{ fontSize: 16, color: "#ccc", marginTop: 4 }}>× 8-12 reps</p></div><button className="tap" style={st.pb} onClick={() => { if (sN >= nS) sP("bestset"); else { sRT(rest); sRL(rest); sP("rest"); } }}>{sN >= nS ? "Finish" : "Set Done"}</button></div>}
-        {phase === "rest" && <div style={{ animation: "fadeIn .3s ease", textAlign: "center" }}><div style={{ background: "#14141F", borderRadius: 16, padding: 32, marginBottom: 16, border: "1px solid #1E1E2E" }}><p style={{ fontSize: 12, color: "#888", fontWeight: 700, textTransform: "uppercase", marginBottom: 8 }}>Rest</p><p style={{ fontSize: 56, fontWeight: 700, color: rL <= 10 ? "#FF3B30" : "#fff", fontFamily: "'Oswald',sans-serif" }}>{fmt(rL)}</p><div style={{ width: "100%", height: 4, background: "#1E1E2E", borderRadius: 2, marginTop: 12, overflow: "hidden" }}><div style={{ height: "100%", width: `${(rL / rT) * 100}%`, background: rL <= 10 ? "#FF3B30" : "#34C759", borderRadius: 2, transition: "width 1s linear" }} /></div></div><button className="tap" style={{ ...st.pb, background: "#1C1C2E", border: "1px solid #2A2A3E" }} onClick={() => { sP("working"); sSN(n => n + 1); }}>Skip Rest</button></div>}
+        {phase === "working" && <div style={{ animation: "fadeIn .3s ease", textAlign: "center" }}><div style={{ background: "linear-gradient(135deg,#FF3B3015,#FF3B3030)", border: "1px solid #FF3B3040", borderRadius: 16, padding: 24, marginBottom: 16 }}><p style={{ fontSize: 12, color: "#FF3B30", fontWeight: 700, textTransform: "uppercase", marginBottom: 4 }}>Set {sN}/{nS}</p>{tW ? <p style={{ fontSize: 40, fontWeight: 700, color: "#fff", fontFamily: "'Oswald',sans-serif" }}>{tW} kg</p> : <p style={{ fontSize: 20, color: "#ccc" }}>Your weight</p>}<p style={{ fontSize: 16, color: "#ccc", marginTop: 4 }}>× 8-12 reps</p></div><button className="tap" style={st.pb} onClick={() => { if (sN >= nS) sP("bestset"); else startRest(); }}>{sN >= nS ? "Finish" : "Set Done"}</button></div>}
+        {phase === "rest" && <div style={{ animation: "fadeIn .3s ease", textAlign: "center" }}><div style={{ background: "#14141F", borderRadius: 16, padding: 32, marginBottom: 16, border: "1px solid #1E1E2E" }}><p style={{ fontSize: 12, color: "#888", fontWeight: 700, textTransform: "uppercase", marginBottom: 8 }}>Rest</p><p style={{ fontSize: 56, fontWeight: 700, color: rL <= 10 ? "#FF3B30" : "#fff", fontFamily: "'Oswald',sans-serif" }}>{fmt(rL)}</p><div style={{ width: "100%", height: 4, background: "#1E1E2E", borderRadius: 2, marginTop: 12, overflow: "hidden" }}><div style={{ height: "100%", width: `${Math.min(100, (rL / rT) * 100)}%`, background: rL <= 10 ? "#FF3B30" : "#34C759", borderRadius: 2, transition: "width 1s linear" }} /></div><div style={{ display: "flex", justifyContent: "center", gap: 10, marginTop: 16 }}><button className="tap" onClick={() => adjustRest(-15)} style={{ padding: "8px 16px", borderRadius: 10, background: "#1C1C2E", border: "1px solid #2A2A3E", color: "#ccc", fontSize: 13, fontWeight: 700 }}>−15s</button><button className="tap" onClick={() => adjustRest(15)} style={{ padding: "8px 16px", borderRadius: 10, background: "#1C1C2E", border: "1px solid #2A2A3E", color: "#ccc", fontSize: 13, fontWeight: 700 }}>+15s</button></div></div><button className="tap" style={{ ...st.pb, background: "#1C1C2E", border: "1px solid #2A2A3E" }} onClick={() => { sREA(null); sP("working"); sSN(n => n + 1); }}>Skip Rest</button></div>}
         {phase === "cardio" && <div style={{ animation: "fadeIn .3s ease" }}><div style={{ background: "#14141F", borderRadius: 16, padding: 20, marginBottom: 16, border: "1px solid #1E1E2E" }}><p style={{ fontSize: 12, color: "#FF375F", fontWeight: 700, letterSpacing: 1, marginBottom: 12, textTransform: "uppercase" }}>Log Cardio</p>{cur.isPace ? (<><div style={st.fg}><label style={st.lb}>Distance (km)</label><input style={st.ib} type="number" step="0.1" value={cD} onChange={e => sCD(e.target.value)} /></div><div style={st.fg}><label style={st.lb}>Time (min)</label><input style={st.ib} type="number" step="0.1" value={cT} onChange={e => sCT(e.target.value)} /></div></>) : (<div style={st.fg}><label style={st.lb}>{cur.isLow ? "Seconds" : "Value"}</label><input style={st.ib} type="number" value={cD} onChange={e => sCD(e.target.value)} /></div>)}</div><div style={{ display: "flex", gap: 8 }}><button className="tap" style={{ ...st.pb, flex: 1 }} onClick={logBest}>Log</button><button className="tap" style={{ ...st.pb, flex: 0, padding: "14px 20px", background: "#1C1C2E", border: "1px solid #2A2A3E" }} onClick={skipEx}>Skip</button></div></div>}
         {phase === "bestset" && <div style={{ animation: "fadeIn .3s ease" }}><div style={{ background: "#14141F", borderRadius: 16, padding: 20, marginBottom: 16, border: "1px solid #1E1E2E" }}><p style={{ fontSize: 12, color: "#34C759", fontWeight: 700, letterSpacing: 1, marginBottom: 12, textTransform: "uppercase" }}>Best Set</p><div style={st.fg}><label style={st.lb}>Weight (kg)</label><input style={st.ib} type="number" value={bW} onChange={e => sBW(e.target.value)} /></div><div style={st.fg}><label style={st.lb}>Reps</label><input style={st.ib} type="number" value={bR} onChange={e => sBR(e.target.value)} /></div>{bW && bR && <p style={{ fontSize: 14, color: "#34C759", textAlign: "center" }}>1RM: {Math.round(e1(parseFloat(bW), parseInt(bR)) * 10) / 10} kg</p>}</div><div style={{ display: "flex", gap: 8 }}><button className="tap" style={{ ...st.pb, flex: 1 }} onClick={logBest}>Save</button><button className="tap" style={{ ...st.pb, flex: 0, padding: "14px 20px", background: "#1C1C2E", border: "1px solid #2A2A3E" }} onClick={nextEx}>Skip</button></div></div>}
       </div>
@@ -364,6 +405,10 @@ export default function App() {
   const plateaus = useMemo(() => { if (!data?.logs || !data?.profile) return []; const res = []; const twa = Date.now() - 21 * 24 * 60 * 60 * 1000; for (const bp of BP) for (const rg of bp.rg) { (data.selectedExercises[rg.id] || []).forEach((nm, j) => { const ky = `${rg.id}::${j}`; const logs = data.logs[ky] || []; if (logs.length < 4) return; const sorted = [...logs].sort((a, b) => new Date(a.date) - new Date(b.date)); const recent = sorted.filter(l => new Date(l.date).getTime() > twa); const older = sorted.filter(l => new Date(l.date).getTime() <= twa); if (recent.length < 2 || older.length < 1) return; if (Math.max(...recent.map(l => l.oneRM)) <= Math.max(...older.map(l => l.oneRM))) res.push({ name: nm, best: Math.max(...recent.map(l => l.oneRM)), color: bp.c }); }); } return res; }, [data]);
 
   const schedule = useMemo(() => { if (customSched) return customSched; if (!data?.selectedExercises) return null; const tmpl = SCHEDULES[schedDays]; if (!tmpl) return null; return tmpl.days.map((dn, i) => { const regions = tmpl.map[i]; const exercises = regions.map(rid => { const sel = data.selectedExercises[rid] || []; if (sel.length === 0) return null; const bp = BP.find(b => b.rg.some(r => r.id === rid)); const rg = bp?.rg.find(r => r.id === rid); return { region: rg?.l || rid, regionId: rid, exercises: sel, color: bp?.c || "#888" }; }).filter(Boolean); return { name: dn, exercises }; }); }, [data?.selectedExercises, schedDays, customSched]);
+
+  const ensureCustomSched = () => (customSched || schedule || []).map(d => ({ ...d, exercises: d.exercises.map(g => ({ ...g, exercises: [...g.exercises] })) }));
+  const moveDay = (i, dir) => { const arr = ensureCustomSched(); const j = i + dir; if (j < 0 || j >= arr.length) return; [arr[i], arr[j]] = [arr[j], arr[i]]; sCustomSched(arr); save({ ...data, customSchedule: arr }); };
+  const duplicateDay = i => { const arr = ensureCustomSched(); const copy = { ...arr[i], name: `${arr[i].name} Copy`, exercises: arr[i].exercises.map(g => ({ ...g, exercises: [...g.exercises] })) }; arr.splice(i + 1, 0, copy); sCustomSched(arr); save({ ...data, customSchedule: arr }); };
 
   if (loading) return (<div style={st.ls}><div style={{ animation: "pulse 1.5s ease infinite", display: "flex" }}><I t="dumbbell" s={48} c="#FF3B30" /></div><p style={{ color: "#666", marginTop: 12, fontSize: 14 }}>Loading APEX... ({TOTAL_EX} exercises)</p></div>);
 
@@ -513,7 +558,7 @@ export default function App() {
               {editDay === null ? (<>
                 <p style={{ fontSize: 12, color: "#888", marginBottom: 8 }}>Tap START to workout, EDIT to customize</p>
                 <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-                  {[3, 4, 5, 6].map(d => <button key={d} className="tap" onClick={() => { sSchedDays(d); sCustomSched(null); }} style={{ ...st.pl, ...(schedDays === d && !customSched ? { border: "1px solid #FF3B30", background: "#FF3B3015", color: "#FF3B30" } : {}), flex: 1, textAlign: "center" }}>{d}d</button>)}
+                  {[3, 4, 5, 6].map(d => <button key={d} className="tap" onClick={() => { if (customSched && !window.confirm("Switch template? This discards your custom schedule.")) return; sSchedDays(d); sCustomSched(null); save({ ...data, customSchedule: null }); }} style={{ ...st.pl, ...(schedDays === d && !customSched ? { border: "1px solid #FF3B30", background: "#FF3B3015", color: "#FF3B30" } : {}), flex: 1, textAlign: "center" }}>{d}d</button>)}
                 </div>
                 {customSched && <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
                   <span style={{ fontSize: 11, color: "#34C759", flex: 1, display: "flex", alignItems: "center" }}>Custom schedule active</span>
@@ -524,6 +569,9 @@ export default function App() {
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                       <p style={{ fontFamily: "'Oswald',sans-serif", fontSize: 15, fontWeight: 700, color: "#fff", letterSpacing: 1 }}>Day {i + 1}: {day.name}</p>
                       <div style={{ display: "flex", gap: 6 }}>
+                        <button className="tap" onClick={() => moveDay(i, -1)} disabled={i === 0} style={{ padding: "6px 9px", borderRadius: 10, background: "#1C1C2E", border: "1px solid #2A2A3E", color: i === 0 ? "#444" : "#888", fontSize: 11, fontWeight: 700 }}>▲</button>
+                        <button className="tap" onClick={() => moveDay(i, 1)} disabled={i === schedule.length - 1} style={{ padding: "6px 9px", borderRadius: 10, background: "#1C1C2E", border: "1px solid #2A2A3E", color: i === schedule.length - 1 ? "#444" : "#888", fontSize: 11, fontWeight: 700 }}>▼</button>
+                        <button className="tap" onClick={() => duplicateDay(i)} title="Duplicate day" style={{ padding: "6px 10px", borderRadius: 10, background: "#1C1C2E", border: "1px solid #2A2A3E", color: "#888", fontSize: 11, fontWeight: 700 }}>⧉</button>
                         <button className="tap" onClick={() => sEditDay(i)} style={{ padding: "6px 12px", borderRadius: 10, background: "#1C1C2E", border: "1px solid #2A2A3E", color: "#888", fontSize: 11, fontWeight: 600 }}>EDIT</button>
                         {day.exercises.length > 0 && <button className="tap" onClick={() => { sWorkoutDay(i); setScreen("workout"); }} style={{ padding: "6px 14px", borderRadius: 10, background: "linear-gradient(135deg,#34C759,#30B350)", border: "none", color: "#fff", fontSize: 11, fontWeight: 700, fontFamily: "'Oswald',sans-serif", letterSpacing: 1 }}>START</button>}
                       </div>
@@ -544,14 +592,17 @@ export default function App() {
                   const curSched = customSched || schedule || [];
                   const day = curSched[editDay];
                   if (!day) return null;
-                  const allSelExercises = [];
-                  for (const bp of BP) for (const rg of bp.rg) {
-                    const sel = data.selectedExercises[rg.id] || [];
-                    sel.forEach(nm => {
-                      const alreadyIn = day.exercises.some(g => g.exercises.includes(nm));
-                      allSelExercises.push({ nm, rid: rg.id, region: rg.l, color: bp.c, alreadyIn });
+                  const groupedSel = BP.map(bp => {
+                    const items = [];
+                    bp.rg.forEach(rg => {
+                      const sel = data.selectedExercises[rg.id] || [];
+                      sel.forEach(nm => {
+                        const alreadyIn = day.exercises.some(g => g.exercises.includes(nm));
+                        items.push({ nm, rid: rg.id, region: rg.l, alreadyIn });
+                      });
                     });
-                  }
+                    return { bp, items };
+                  }).filter(g => g.items.length > 0);
                   const addEx = (nm, rid) => {
                     const bp = BP.find(b => b.rg.some(r => r.id === rid));
                     const rg = bp?.rg.find(r => r.id === rid);
@@ -577,6 +628,15 @@ export default function App() {
                     save({ ...data, customSchedule: newSched.length > 0 ? newSched : null });
                     sEditDay(null);
                   };
+                  const moveRegion = (gi, dir) => {
+                    const j = gi + dir;
+                    if (j < 0 || j >= day.exercises.length) return;
+                    const arr = [...day.exercises];
+                    [arr[gi], arr[j]] = [arr[j], arr[gi]];
+                    const newDay = { ...day, exercises: arr };
+                    const newSched = [...curSched]; newSched[editDay] = newDay;
+                    sCustomSched(newSched); save({ ...data, customSchedule: newSched });
+                  };
                   return (
                     <div style={{ animation: "fadeIn .3s ease" }}>
                       <button className="tap" style={st.bb} onClick={() => sEditDay(null)}>← Back to Schedule</button>
@@ -593,7 +653,13 @@ export default function App() {
                         <div style={{ marginBottom: 16 }}>
                           <p style={{ fontSize: 11, color: "#888", fontWeight: 700, letterSpacing: 1, marginBottom: 8, textTransform: "uppercase" }}>Current Exercises</p>
                           {day.exercises.map((g, j) => <div key={j} style={{ marginBottom: 8 }}>
-                            <p style={{ fontSize: 11, color: g.color, fontWeight: 700, marginBottom: 4 }}>{g.region}</p>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                              <p style={{ fontSize: 11, color: g.color, fontWeight: 700 }}>{g.region}</p>
+                              <div style={{ display: "flex", gap: 4 }}>
+                                <button className="tap" onClick={() => moveRegion(j, -1)} disabled={j === 0} style={{ padding: "3px 8px", borderRadius: 6, background: "#1C1C2E", border: "1px solid #2A2A3E", color: j === 0 ? "#444" : "#888", fontSize: 10 }}>▲</button>
+                                <button className="tap" onClick={() => moveRegion(j, 1)} disabled={j === day.exercises.length - 1} style={{ padding: "3px 8px", borderRadius: 6, background: "#1C1C2E", border: "1px solid #2A2A3E", color: j === day.exercises.length - 1 ? "#444" : "#888", fontSize: 10 }}>▼</button>
+                              </div>
+                            </div>
                             {g.exercises.map(e => <div key={e} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 10px", background: "#14141F", borderRadius: 8, marginBottom: 3, border: "1px solid #1E1E2E" }}>
                               <span style={{ fontSize: 13, color: "#ccc" }}>{e}</span>
                               <button className="tap" onClick={() => rmEx(e, g.regionId)} style={{ background: "none", border: "none", color: "#FF3B30", fontSize: 12, fontWeight: 700 }}>Remove</button>
@@ -602,16 +668,21 @@ export default function App() {
                         </div>
                       )}
                       <p style={{ fontSize: 11, color: "#888", fontWeight: 700, letterSpacing: 1, marginBottom: 8, textTransform: "uppercase" }}>Add from your selected exercises</p>
-                      {allSelExercises.length === 0 ? <p style={{ fontSize: 12, color: "#555" }}>No exercises selected. Go to Exercises tab first.</p> :
-                        allSelExercises.map((ex, i) => (
-                          <button key={i} className="tap" onClick={() => ex.alreadyIn ? rmEx(ex.nm, ex.rid) : addEx(ex.nm, ex.rid)}
-                            style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", background: ex.alreadyIn ? `${ex.color}15` : "#14141F", border: `1px solid ${ex.alreadyIn ? ex.color + "40" : "#1E1E2E"}`, borderRadius: 10, marginBottom: 4, cursor: "pointer" }}>
-                            <div style={{ textAlign: "left" }}>
-                              <span style={{ fontSize: 13, color: ex.alreadyIn ? ex.color : "#ccc", fontWeight: ex.alreadyIn ? 700 : 400 }}>{ex.alreadyIn ? "✓ " : ""}{ex.nm}</span>
-                              <span style={{ fontSize: 10, color: "#666", marginLeft: 8 }}>{ex.region}</span>
-                            </div>
-                            <span style={{ fontSize: 11, color: ex.alreadyIn ? "#FF3B30" : "#34C759", fontWeight: 600 }}>{ex.alreadyIn ? "Remove" : "+ Add"}</span>
-                          </button>
+                      {groupedSel.length === 0 ? <p style={{ fontSize: 12, color: "#555" }}>No exercises selected. Go to Exercises tab first.</p> :
+                        groupedSel.map(({ bp, items }) => (
+                          <div key={bp.id} style={{ marginBottom: 12 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}><I t={bp.i} s={14} c={bp.c} /><span style={{ fontSize: 12, fontWeight: 700, color: bp.c, letterSpacing: .5 }}>{bp.l}</span></div>
+                            {items.map((ex, i) => (
+                              <button key={i} className="tap" onClick={() => ex.alreadyIn ? rmEx(ex.nm, ex.rid) : addEx(ex.nm, ex.rid)}
+                                style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", background: ex.alreadyIn ? `${bp.c}15` : "#14141F", border: `1px solid ${ex.alreadyIn ? bp.c + "40" : "#1E1E2E"}`, borderRadius: 10, marginBottom: 4, cursor: "pointer" }}>
+                                <div style={{ textAlign: "left" }}>
+                                  <span style={{ fontSize: 13, color: ex.alreadyIn ? bp.c : "#ccc", fontWeight: ex.alreadyIn ? 700 : 400 }}>{ex.alreadyIn ? "✓ " : ""}{ex.nm}</span>
+                                  <span style={{ fontSize: 10, color: "#666", marginLeft: 8 }}>{ex.region}</span>
+                                </div>
+                                <span style={{ fontSize: 11, color: ex.alreadyIn ? "#FF3B30" : "#34C759", fontWeight: 600 }}>{ex.alreadyIn ? "Remove" : "+ Add"}</span>
+                              </button>
+                            ))}
+                          </div>
                         ))
                       }
                       <button className="tap" onClick={rmDay} style={{ ...st.db, width: "100%", textAlign: "center", marginTop: 16, color: "#FF3B30", borderColor: "#FF3B3040" }}>Delete This Day</button>
