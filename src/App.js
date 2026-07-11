@@ -222,7 +222,7 @@ function WorkoutMode({ dayPlan, data, save, onEnd, sT }) {
     const id = setInterval(tick, 1000);
     document.addEventListener("visibilitychange", tick);
     return () => { clearInterval(id); document.removeEventListener("visibilitychange", tick); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line
   }, [phase, restEndAt]);
 
   const startRest = () => { sRT(rest); sRL(rest); sREA(Date.now() + rest * 1000); sP("rest"); };
