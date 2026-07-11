@@ -209,21 +209,27 @@ function WorkoutMode({ dayPlan, data, save, onEnd, sT }) {
 
   useEffect(() => {
     if (phase !== "rest" || !restEndAt) return;
+    const fmtT = s => { const m = Math.floor(s / 60); const sc = s % 60; return `${m}:${sc < 10 ? "0" : ""}${sc}`; };
+    let lastNotified = 0;
     const tick = () => {
       const remain = Math.max(0, Math.round((restEndAt - Date.now()) / 1000));
       sRL(remain);
       if (remain <= 0) {
         sP("working"); sSN(n => n + 1);
-        if (notifOn) { try { new Notification("Rest complete", { body: cur ? `Back to ${cur.name}` : "Time for your next set", tag: "apex-rest" }); } catch {} }
+        if (notifOn) { try { new Notification("Rest complete", { body: cur ? `Back to ${cur.name}` : "Time for your next set", tag: "apex-rest", renotify: true, silent: false }); } catch {} }
         if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+      } else if (notifOn && Date.now() - lastNotified >= 5000) {
+        lastNotified = Date.now();
+        try { new Notification(`Rest: ${fmtT(remain)}`, { body: cur ? cur.name : "Resting", tag: "apex-rest", renotify: false, silent: true }); } catch {}
       }
     };
+    if (notifOn) { try { new Notification(`Rest: ${fmtT(Math.max(0, Math.round((restEndAt - Date.now()) / 1000)))}`, { body: cur ? cur.name : "Resting", tag: "apex-rest", renotify: false, silent: true }); lastNotified = Date.now(); } catch {} }
     tick();
     const id = setInterval(tick, 1000);
     document.addEventListener("visibilitychange", tick);
     return () => { clearInterval(id); document.removeEventListener("visibilitychange", tick); };
     // eslint-disable-next-line
-  }, [phase, restEndAt]);
+  }, [phase, restEndAt, notifOn]);
 
   const startRest = () => { sRT(rest); sRL(rest); sREA(Date.now() + rest * 1000); sP("rest"); };
   const adjustRest = delta => { sREA(e => Math.max(Date.now() + 1000, (e || Date.now()) + delta * 1000)); sRT(t => Math.max(15, t + delta)); };
