@@ -4,11 +4,13 @@ import { st, globalCSS } from './styles';
 import { RK, BP, SCHEDULES, AUTO_PICKS, TIPS, BDG, FOODS } from './data/constants';
 import { EX, TOTAL_EX, FG, fE, e1, gRI, gPR, getRestSec, getSets, suggestW } from './data/exercises';
 import { SK, store } from './data/storage';
-import { Capacitor } from '@capacitor/core';
+import { Capacitor, registerPlugin } from '@capacitor/core';
 import { LocalNotifications } from '@capacitor/local-notifications';
 
 const isNative = Capacitor.isNativePlatform();
 const REST_NOTIF_ID = 4471;
+const REST_CHRONO_ID = 4472;
+const RestTimer = registerPlugin('RestTimer');
 
 const getDeviceId = () => {
   let id = localStorage.getItem("apex-device-id");
@@ -246,6 +248,14 @@ function WorkoutMode({ dayPlan, data, save, onEnd, sT }) {
     fetch("/api/schedule-rest", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ deviceId: getDeviceId(), delaySeconds, title, body, tag: "apex-rest" }) })
       .then(r => r.json()).then(j => { if (j.scheduleId) sSchId(j.scheduleId); }).catch(() => {});
   };
+  const showChronometer = (endAtMs, title, body) => {
+    if (!isNative || !notifOn) return;
+    RestTimer.showCountdown({ title, body, endAt: endAtMs, id: REST_CHRONO_ID }).catch(() => {});
+  };
+  const hideChronometer = () => {
+    if (!isNative) return;
+    RestTimer.cancelCountdown({ id: REST_CHRONO_ID }).catch(() => {});
+  };
 
   useEffect(() => {
     if (phase !== "rest" || !restEndAt) return;
@@ -254,6 +264,7 @@ function WorkoutMode({ dayPlan, data, save, onEnd, sT }) {
       sRL(remain);
       if (remain <= 0) {
         sP("working"); sSN(n => n + 1);
+        if (isNative) hideChronometer();
         if (!isNative) {
           if (notifOn) { try { new Notification("Rest complete", { body: cur ? `Back to ${cur.name}` : "Time for your next set", tag: "apex-rest" }); } catch {} }
           cancelScheduled(scheduleId); sSchId(null);
@@ -273,20 +284,23 @@ function WorkoutMode({ dayPlan, data, save, onEnd, sT }) {
   }, [phase, restEndAt]);
 
   const startRest = () => {
-    sRT(rest); sRL(rest); sREA(Date.now() + rest * 1000); sP("rest");
+    const endAt = Date.now() + rest * 1000;
+    sRT(rest); sRL(rest); sREA(endAt); sP("rest");
     scheduleRestPush(rest, "Rest complete", cur ? `Back to ${cur.name}` : "Time for your next set");
+    showChronometer(endAt, "Resting", cur ? cur.name : "Rest");
   };
   const adjustRest = delta => {
     cancelScheduled(scheduleId); sSchId(null);
     sREA(e => {
       const newEnd = Math.max(Date.now() + 1000, (e || Date.now()) + delta * 1000);
       scheduleRestPush(Math.max(1, Math.round((newEnd - Date.now()) / 1000)), "Rest complete", cur ? `Back to ${cur.name}` : "Time for your next set");
+      showChronometer(newEnd, "Resting", cur ? cur.name : "Rest");
       return newEnd;
     });
     sRT(t => Math.max(15, t + delta));
   };
-  const skipRest = () => { cancelScheduled(scheduleId); sSchId(null); sREA(null); sP("working"); sSN(n => n + 1); };
-  const endWorkout = () => { cancelScheduled(scheduleId); onEnd(); };
+  const skipRest = () => { cancelScheduled(scheduleId); sSchId(null); hideChronometer(); sREA(null); sP("working"); sSN(n => n + 1); };
+  const endWorkout = () => { cancelScheduled(scheduleId); hideChronometer(); onEnd(); };
   const setDefaultRest = val => save({ ...data, settings: { ...(data.settings || {}), restSeconds: val } });
   const setDefaultSets = val => save({ ...data, settings: { ...(data.settings || {}), setCount: val } });
   const toggleNotif = async () => {
