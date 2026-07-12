@@ -203,6 +203,7 @@ function WorkoutMode({ dayPlan, data, save, onEnd, sT }) {
   const [eI, sEI] = useState(0);
   const [phase, sP] = useState("preview");
   const [sN, sSN] = useState(0);
+  const [extraSets, setExtraSets] = useState(0);
   const [rT, sRT] = useState(0);
   const [rL, sRL] = useState(0);
   const [restEndAt, sREA] = useState(null);
@@ -216,7 +217,9 @@ function WorkoutMode({ dayPlan, data, save, onEnd, sT }) {
   const [summary, setSm] = useState(null);
 
   const cur = allEx[eI];
-  const nS = cur ? getSets(cur.name) : 3;
+  const autoSets = cur ? getSets(cur.name) : 3;
+  const defaultSets = data?.settings?.setCount;
+  const nS = (defaultSets ?? autoSets) + extraSets;
   const autoRest = cur ? getRestSec(cur.name) : 90;
   const defaultRest = data?.settings?.restSeconds;
   const rest = defaultRest ?? autoRest;
@@ -236,7 +239,7 @@ function WorkoutMode({ dayPlan, data, save, onEnd, sT }) {
   const scheduleRestPush = (delaySeconds, title, body) => {
     if (!notifOn) return;
     if (isNative) {
-      LocalNotifications.schedule({ notifications: [{ id: REST_NOTIF_ID, title, body, schedule: { at: new Date(Date.now() + delaySeconds * 1000) } }] }).catch(() => {});
+      LocalNotifications.schedule({ notifications: [{ id: REST_NOTIF_ID, title, body, schedule: { at: new Date(Date.now() + delaySeconds * 1000), allowWhileIdle: true } }] }).catch(() => { sT("Couldn't schedule notification"); });
       return;
     }
     if (!pushOn) return;
@@ -251,9 +254,15 @@ function WorkoutMode({ dayPlan, data, save, onEnd, sT }) {
       sRL(remain);
       if (remain <= 0) {
         sP("working"); sSN(n => n + 1);
-        if (notifOn && !isNative) { try { new Notification("Rest complete", { body: cur ? `Back to ${cur.name}` : "Time for your next set", tag: "apex-rest" }); } catch {} }
+        if (!isNative) {
+          if (notifOn) { try { new Notification("Rest complete", { body: cur ? `Back to ${cur.name}` : "Time for your next set", tag: "apex-rest" }); } catch {} }
+          cancelScheduled(scheduleId); sSchId(null);
+        } else if (document.visibilityState === "visible") {
+          // Only cancel the real OS notification when we're sure the app is on screen right now
+          // (otherwise a backgrounded tick that happens to fire must not swallow the one notification we need).
+          cancelScheduled(scheduleId); sSchId(null);
+        }
         if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
-        cancelScheduled(scheduleId); sSchId(null);
       }
     };
     tick();
@@ -279,6 +288,7 @@ function WorkoutMode({ dayPlan, data, save, onEnd, sT }) {
   const skipRest = () => { cancelScheduled(scheduleId); sSchId(null); sREA(null); sP("working"); sSN(n => n + 1); };
   const endWorkout = () => { cancelScheduled(scheduleId); onEnd(); };
   const setDefaultRest = val => save({ ...data, settings: { ...(data.settings || {}), restSeconds: val } });
+  const setDefaultSets = val => save({ ...data, settings: { ...(data.settings || {}), setCount: val } });
   const toggleNotif = async () => {
     const turningOn = !data?.settings?.notifications;
     if (!turningOn) {
@@ -352,7 +362,7 @@ function WorkoutMode({ dayPlan, data, save, onEnd, sT }) {
 
   const skipEx = () => { setSk(s => [...s, eI]); nextEx(); };
   const nextEx = () => {
-    sBW(""); sBR(""); sCD(""); sCT(""); sSN(0);
+    sBW(""); sBR(""); sCD(""); sCT(""); sSN(0); setExtraSets(0);
     const next = eI + 1;
     if (next >= allEx.length) {
       setSm({ time: Math.round((Date.now() - startT) / 60000), exercises: allEx.length - skipped.length, skipped: skipped.length });
@@ -405,7 +415,12 @@ function WorkoutMode({ dayPlan, data, save, onEnd, sT }) {
             {!cur.isCardio && <div style={{ background: "#14141F", borderRadius: 16, padding: 20, marginBottom: 12, border: "1px solid #1E1E2E" }}>
               <p style={{ fontSize: 12, color: "#888", fontWeight: 700, letterSpacing: 1, marginBottom: 12, textTransform: "uppercase" }}>Game Plan</p>
               {cur.lastWeight > 0 && <p style={{ fontSize: 14, color: "#FFD700", marginBottom: 6 }}>Warm-up: {wW} kg × 10</p>}
-              <p style={{ fontSize: 14, color: "#fff", marginBottom: 6 }}>{nS} sets × 8-12 reps</p>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginBottom: 6 }}>
+                <button className="tap" onClick={() => setDefaultSets(Math.max(1, (defaultSets ?? autoSets) - 1))} style={{ padding: "6px 12px", borderRadius: 8, background: "#1C1C2E", border: "1px solid #2A2A3E", color: "#888", fontSize: 12, fontWeight: 700 }}>−1</button>
+                <span style={{ fontSize: 14, color: "#fff" }}>{nS} sets × 8-12 reps</span>
+                <button className="tap" onClick={() => setDefaultSets((defaultSets ?? autoSets) + 1)} style={{ padding: "6px 12px", borderRadius: 8, background: "#1C1C2E", border: "1px solid #2A2A3E", color: "#888", fontSize: 12, fontWeight: 700 }}>+1</button>
+                {defaultSets != null && <button className="tap" onClick={() => setDefaultSets(null)} style={{ padding: "6px 10px", borderRadius: 8, background: "transparent", border: "1px solid #2A2A3E", color: "#666", fontSize: 11 }}>Auto</button>}
+              </div>
               {tW && <p style={{ fontSize: 14, color: "#34C759" }}>Target: {tW} kg</p>}
               {!tW && <p style={{ fontSize: 13, color: "#666" }}>Start light</p>}
               <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginTop: 10 }}>
@@ -427,7 +442,7 @@ function WorkoutMode({ dayPlan, data, save, onEnd, sT }) {
           </div>
         )}
         {phase === "warmup" && <div style={{ animation: "fadeIn .3s ease", textAlign: "center" }}><div style={{ background: "linear-gradient(135deg,#FFD70015,#FFD70030)", border: "1px solid #FFD70040", borderRadius: 16, padding: 24, marginBottom: 16 }}><p style={{ fontSize: 12, color: "#FFD700", fontWeight: 700, textTransform: "uppercase", marginBottom: 8 }}>Warm-up</p><p style={{ fontSize: 36, fontWeight: 700, color: "#fff", fontFamily: "'Oswald',sans-serif" }}>{wW} kg</p><p style={{ fontSize: 16, color: "#ccc", marginTop: 4 }}>× 10 reps</p></div><button className="tap" style={st.pb} onClick={() => { sP("working"); sSN(1); }}>Start Working Sets</button></div>}
-        {phase === "working" && <div style={{ animation: "fadeIn .3s ease", textAlign: "center" }}><div style={{ background: "linear-gradient(135deg,#FF3B3015,#FF3B3030)", border: "1px solid #FF3B3040", borderRadius: 16, padding: 24, marginBottom: 16 }}><p style={{ fontSize: 12, color: "#FF3B30", fontWeight: 700, textTransform: "uppercase", marginBottom: 4 }}>Set {sN}/{nS}</p>{tW ? <p style={{ fontSize: 40, fontWeight: 700, color: "#fff", fontFamily: "'Oswald',sans-serif" }}>{tW} kg</p> : <p style={{ fontSize: 20, color: "#ccc" }}>Your weight</p>}<p style={{ fontSize: 16, color: "#ccc", marginTop: 4 }}>× 8-12 reps</p></div><button className="tap" style={st.pb} onClick={() => { if (sN >= nS) sP("bestset"); else startRest(); }}>{sN >= nS ? "Finish" : "Set Done"}</button></div>}
+        {phase === "working" && <div style={{ animation: "fadeIn .3s ease", textAlign: "center" }}><div style={{ background: "linear-gradient(135deg,#FF3B3015,#FF3B3030)", border: "1px solid #FF3B3040", borderRadius: 16, padding: 24, marginBottom: 16 }}><p style={{ fontSize: 12, color: "#FF3B30", fontWeight: 700, textTransform: "uppercase", marginBottom: 4 }}>Set {sN}/{nS}</p>{tW ? <p style={{ fontSize: 40, fontWeight: 700, color: "#fff", fontFamily: "'Oswald',sans-serif" }}>{tW} kg</p> : <p style={{ fontSize: 20, color: "#ccc" }}>Your weight</p>}<p style={{ fontSize: 16, color: "#ccc", marginTop: 4 }}>× 8-12 reps</p></div><div style={{ display: "flex", gap: 8 }}><button className="tap" style={{ ...st.pb, flex: 1 }} onClick={() => { if (sN >= nS) sP("bestset"); else startRest(); }}>{sN >= nS ? "Finish" : "Set Done"}</button>{sN >= nS && <button className="tap" style={{ ...st.pb, flex: 0, padding: "14px 18px", background: "#1C1C2E", border: "1px solid #2A2A3E", fontSize: 13 }} onClick={() => { setExtraSets(e => e + 1); startRest(); }}>+ Set</button>}</div></div>}
         {phase === "rest" && <div style={{ animation: "fadeIn .3s ease", textAlign: "center" }}><div style={{ background: "#14141F", borderRadius: 16, padding: 32, marginBottom: 16, border: "1px solid #1E1E2E" }}><p style={{ fontSize: 12, color: "#888", fontWeight: 700, textTransform: "uppercase", marginBottom: 8 }}>Rest</p><p style={{ fontSize: 56, fontWeight: 700, color: rL <= 10 ? "#FF3B30" : "#fff", fontFamily: "'Oswald',sans-serif" }}>{fmt(rL)}</p><div style={{ width: "100%", height: 4, background: "#1E1E2E", borderRadius: 2, marginTop: 12, overflow: "hidden" }}><div style={{ height: "100%", width: `${Math.min(100, (rL / rT) * 100)}%`, background: rL <= 10 ? "#FF3B30" : "#34C759", borderRadius: 2, transition: "width 1s linear" }} /></div><div style={{ display: "flex", justifyContent: "center", gap: 10, marginTop: 16 }}><button className="tap" onClick={() => adjustRest(-15)} style={{ padding: "8px 16px", borderRadius: 10, background: "#1C1C2E", border: "1px solid #2A2A3E", color: "#ccc", fontSize: 13, fontWeight: 700 }}>−15s</button><button className="tap" onClick={() => adjustRest(15)} style={{ padding: "8px 16px", borderRadius: 10, background: "#1C1C2E", border: "1px solid #2A2A3E", color: "#ccc", fontSize: 13, fontWeight: 700 }}>+15s</button></div></div><button className="tap" style={{ ...st.pb, background: "#1C1C2E", border: "1px solid #2A2A3E" }} onClick={skipRest}>Skip Rest</button></div>}
         {phase === "cardio" && <div style={{ animation: "fadeIn .3s ease" }}><div style={{ background: "#14141F", borderRadius: 16, padding: 20, marginBottom: 16, border: "1px solid #1E1E2E" }}><p style={{ fontSize: 12, color: "#FF375F", fontWeight: 700, letterSpacing: 1, marginBottom: 12, textTransform: "uppercase" }}>Log Cardio</p>{cur.isPace ? (<><div style={st.fg}><label style={st.lb}>Distance (km)</label><input style={st.ib} type="number" step="0.1" value={cD} onChange={e => sCD(e.target.value)} /></div><div style={st.fg}><label style={st.lb}>Time (min)</label><input style={st.ib} type="number" step="0.1" value={cT} onChange={e => sCT(e.target.value)} /></div></>) : (<div style={st.fg}><label style={st.lb}>{cur.isLow ? "Seconds" : "Value"}</label><input style={st.ib} type="number" value={cD} onChange={e => sCD(e.target.value)} /></div>)}</div><div style={{ display: "flex", gap: 8 }}><button className="tap" style={{ ...st.pb, flex: 1 }} onClick={logBest}>Log</button><button className="tap" style={{ ...st.pb, flex: 0, padding: "14px 20px", background: "#1C1C2E", border: "1px solid #2A2A3E" }} onClick={skipEx}>Skip</button></div></div>}
         {phase === "bestset" && <div style={{ animation: "fadeIn .3s ease" }}><div style={{ background: "#14141F", borderRadius: 16, padding: 20, marginBottom: 16, border: "1px solid #1E1E2E" }}><p style={{ fontSize: 12, color: "#34C759", fontWeight: 700, letterSpacing: 1, marginBottom: 12, textTransform: "uppercase" }}>Best Set</p><div style={st.fg}><label style={st.lb}>Weight (kg)</label><input style={st.ib} type="number" value={bW} onChange={e => sBW(e.target.value)} /></div><div style={st.fg}><label style={st.lb}>Reps</label><input style={st.ib} type="number" value={bR} onChange={e => sBR(e.target.value)} /></div>{bW && bR && <p style={{ fontSize: 14, color: "#34C759", textAlign: "center" }}>1RM: {Math.round(e1(parseFloat(bW), parseInt(bR)) * 10) / 10} kg</p>}</div><div style={{ display: "flex", gap: 8 }}><button className="tap" style={{ ...st.pb, flex: 1 }} onClick={logBest}>Save</button><button className="tap" style={{ ...st.pb, flex: 0, padding: "14px 20px", background: "#1C1C2E", border: "1px solid #2A2A3E" }} onClick={nextEx}>Skip</button></div></div>}
