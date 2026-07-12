@@ -4,6 +4,11 @@ import { st, globalCSS } from './styles';
 import { RK, BP, SCHEDULES, AUTO_PICKS, TIPS, BDG, FOODS } from './data/constants';
 import { EX, TOTAL_EX, FG, fE, e1, gRI, gPR, getRestSec, getSets, suggestW } from './data/exercises';
 import { SK, store } from './data/storage';
+import { Capacitor } from '@capacitor/core';
+import { LocalNotifications } from '@capacitor/local-notifications';
+
+const isNative = Capacitor.isNativePlatform();
+const REST_NOTIF_ID = 4471;
 
 const getDeviceId = () => {
   let id = localStorage.getItem("apex-device-id");
@@ -218,14 +223,22 @@ function WorkoutMode({ dayPlan, data, save, onEnd, sT }) {
   const wW = cur?.lastWeight ? Math.round(cur.lastWeight * .5 / 2.5) * 2.5 : 0;
   const tW = cur?.lastWeight ? suggestW(cur.logs) : null;
   const tips = cur ? FG[cur.name] : null;
-  const notifOn = !!data?.settings?.notifications && typeof Notification !== "undefined" && Notification.permission === "granted";
-  const pushOn = notifOn && !!data?.settings?.pushEnabled;
+  const notifOn = isNative
+    ? !!data?.settings?.notifications
+    : (!!data?.settings?.notifications && typeof Notification !== "undefined" && Notification.permission === "granted");
+  const pushOn = !isNative && notifOn && !!data?.settings?.pushEnabled;
 
   const cancelScheduled = id => {
+    if (isNative) { LocalNotifications.cancel({ notifications: [{ id: REST_NOTIF_ID }] }).catch(() => {}); return; }
     if (!id) return;
     fetch("/api/cancel-rest", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scheduleId: id }) }).catch(() => {});
   };
   const scheduleRestPush = (delaySeconds, title, body) => {
+    if (!notifOn) return;
+    if (isNative) {
+      LocalNotifications.schedule({ notifications: [{ id: REST_NOTIF_ID, title, body, schedule: { at: new Date(Date.now() + delaySeconds * 1000) } }] }).catch(() => {});
+      return;
+    }
     if (!pushOn) return;
     fetch("/api/schedule-rest", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ deviceId: getDeviceId(), delaySeconds, title, body, tag: "apex-rest" }) })
       .then(r => r.json()).then(j => { if (j.scheduleId) sSchId(j.scheduleId); }).catch(() => {});
@@ -238,7 +251,7 @@ function WorkoutMode({ dayPlan, data, save, onEnd, sT }) {
       sRL(remain);
       if (remain <= 0) {
         sP("working"); sSN(n => n + 1);
-        if (notifOn) { try { new Notification("Rest complete", { body: cur ? `Back to ${cur.name}` : "Time for your next set", tag: "apex-rest" }); } catch {} }
+        if (notifOn && !isNative) { try { new Notification("Rest complete", { body: cur ? `Back to ${cur.name}` : "Time for your next set", tag: "apex-rest" }); } catch {} }
         if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
         cancelScheduled(scheduleId); sSchId(null);
       }
@@ -267,13 +280,23 @@ function WorkoutMode({ dayPlan, data, save, onEnd, sT }) {
   const endWorkout = () => { cancelScheduled(scheduleId); onEnd(); };
   const setDefaultRest = val => save({ ...data, settings: { ...(data.settings || {}), restSeconds: val } });
   const toggleNotif = async () => {
-    if (typeof Notification === "undefined") { sT("Not supported"); return; }
     const turningOn = !data?.settings?.notifications;
     if (!turningOn) {
       save({ ...data, settings: { ...(data.settings || {}), notifications: false } });
       sT("Notifications off");
       return;
     }
+    if (isNative) {
+      try {
+        const perm = await LocalNotifications.requestPermissions();
+        if (perm.display !== "granted") { sT("Permission denied"); return; }
+        save({ ...data, settings: { ...(data.settings || {}), notifications: true } });
+        sT("Notifications on (works even if app is closed)");
+      } catch { sT("Not supported"); }
+      return;
+    }
+
+    if (typeof Notification === "undefined") { sT("Not supported"); return; }
     if (Notification.permission === "denied") { sT("Blocked in browser settings"); return; }
     let perm = Notification.permission;
     if (perm !== "granted") perm = await Notification.requestPermission();
