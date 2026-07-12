@@ -31,13 +31,13 @@ public class RestTimerPlugin extends Plugin {
     public void showCountdown(PluginCall call) {
         String title = call.getString("title", "Resting");
         String body = call.getString("body", "");
-        Double endAtD = call.getDouble("endAt");
+        Integer delaySeconds = call.getInt("delaySeconds");
         int id = call.getInt("id", 4472);
-        if (endAtD == null) {
-            call.reject("endAt is required");
+        if (delaySeconds == null) {
+            call.reject("delaySeconds is required");
             return;
         }
-        long endAt = endAtD.longValue();
+        long endAt = System.currentTimeMillis() + (long) delaySeconds * 1000L;
 
         ensureChannel();
 

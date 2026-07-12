@@ -248,9 +248,9 @@ function WorkoutMode({ dayPlan, data, save, onEnd, sT }) {
     fetch("/api/schedule-rest", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ deviceId: getDeviceId(), delaySeconds, title, body, tag: "apex-rest" }) })
       .then(r => r.json()).then(j => { if (j.scheduleId) sSchId(j.scheduleId); }).catch(() => {});
   };
-  const showChronometer = (endAtMs, title, body) => {
+  const showChronometer = (delaySeconds, title, body) => {
     if (!isNative || !notifOn) return;
-    RestTimer.showCountdown({ title, body, endAt: endAtMs, id: REST_CHRONO_ID }).catch(e => { sT(`Timer notif failed: ${e?.message || e}`); });
+    RestTimer.showCountdown({ title, body, delaySeconds: Math.round(delaySeconds), id: REST_CHRONO_ID }).catch(e => { sT(`Timer notif failed: ${e?.message || e}`); });
   };
   const hideChronometer = () => {
     if (!isNative) return;
@@ -287,14 +287,15 @@ function WorkoutMode({ dayPlan, data, save, onEnd, sT }) {
     const endAt = Date.now() + rest * 1000;
     sRT(rest); sRL(rest); sREA(endAt); sP("rest");
     scheduleRestPush(rest, "Rest complete", cur ? `Back to ${cur.name}` : "Time for your next set");
-    showChronometer(endAt, "Resting", cur ? cur.name : "Rest");
+    showChronometer(rest, "Resting", cur ? cur.name : "Rest");
   };
   const adjustRest = delta => {
     cancelScheduled(scheduleId); sSchId(null);
     sREA(e => {
       const newEnd = Math.max(Date.now() + 1000, (e || Date.now()) + delta * 1000);
-      scheduleRestPush(Math.max(1, Math.round((newEnd - Date.now()) / 1000)), "Rest complete", cur ? `Back to ${cur.name}` : "Time for your next set");
-      showChronometer(newEnd, "Resting", cur ? cur.name : "Rest");
+      const remainSeconds = Math.max(1, Math.round((newEnd - Date.now()) / 1000));
+      scheduleRestPush(remainSeconds, "Rest complete", cur ? `Back to ${cur.name}` : "Time for your next set");
+      showChronometer(remainSeconds, "Resting", cur ? cur.name : "Rest");
       return newEnd;
     });
     sRT(t => Math.max(15, t + delta));
