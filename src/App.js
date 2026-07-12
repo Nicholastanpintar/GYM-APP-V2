@@ -250,7 +250,7 @@ function WorkoutMode({ dayPlan, data, save, onEnd, sT }) {
   };
   const showChronometer = (endAtMs, title, body) => {
     if (!isNative || !notifOn) return;
-    RestTimer.showCountdown({ title, body, endAt: endAtMs, id: REST_CHRONO_ID }).catch(() => {});
+    RestTimer.showCountdown({ title, body, endAt: endAtMs, id: REST_CHRONO_ID }).catch(e => { sT(`Timer notif failed: ${e?.message || e}`); });
   };
   const hideChronometer = () => {
     if (!isNative) return;
