@@ -387,7 +387,7 @@ function WorkoutMode({ dayPlan, data, save, onEnd, sT }) {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
           <button className="tap" style={{ ...st.bb, marginBottom: 0 }} onClick={endWorkout}>End</button>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            {typeof Notification !== "undefined" && <button className="tap" onClick={toggleNotif} title="Rest notifications" style={{ background: "none", border: "none", fontSize: 16, padding: 0, cursor: "pointer", lineHeight: 1 }}>{notifOn ? "🔔" : "🔕"}</button>}
+            {(isNative || typeof Notification !== "undefined") && <button className="tap" onClick={toggleNotif} title="Rest notifications" style={{ background: "none", border: "none", fontSize: 16, padding: 0, cursor: "pointer", lineHeight: 1 }}>{notifOn ? "🔔" : "🔕"}</button>}
             <span style={{ fontSize: 11, color: "#888" }}>{eI + 1}/{allEx.length}</span>
           </div>
         </div>
