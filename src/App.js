@@ -290,8 +290,16 @@ function WorkoutMode({ dayPlan, data, save, onEnd, sT }) {
       try {
         const perm = await LocalNotifications.requestPermissions();
         if (perm.display !== "granted") { sT("Permission denied"); return; }
+        let exactOk = true;
+        try {
+          const es = await LocalNotifications.checkExactNotificationSetting();
+          if (es.exact_alarm !== "granted") {
+            const changed = await LocalNotifications.changeExactNotificationSetting();
+            exactOk = changed.exact_alarm === "granted";
+          }
+        } catch { /* not available on this Android version, ignore */ }
         save({ ...data, settings: { ...(data.settings || {}), notifications: true } });
-        sT("Notifications on (works even if app is closed)");
+        sT(exactOk ? "Notifications on (works even if app is closed)" : "Also enable 'Alarms & reminders' in Settings for exact timing");
       } catch { sT("Not supported"); }
       return;
     }
