@@ -4,6 +4,8 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.content.Context;
 import android.os.Build;
+import android.os.SystemClock;
+import android.widget.RemoteViews;
 import androidx.core.app.NotificationCompat;
 
 import com.getcapacitor.Plugin;
@@ -37,9 +39,16 @@ public class RestTimerPlugin extends Plugin {
             call.reject("delaySeconds is required");
             return;
         }
-        long endAt = System.currentTimeMillis() + (long) delaySeconds * 1000L;
+        // Chronometer's base must be in elapsedRealtime, NOT wall-clock time (unlike Notification.setWhen).
+        long base = SystemClock.elapsedRealtime() + (long) delaySeconds * 1000L;
 
         ensureChannel();
+
+        RemoteViews views = new RemoteViews(getContext().getPackageName(), R.layout.notification_rest_timer);
+        views.setTextViewText(R.id.rest_timer_title, title);
+        views.setTextViewText(R.id.rest_timer_body, body);
+        views.setChronometer(R.id.rest_timer_chronometer, base, null, true);
+        views.setChronometerCountDown(R.id.rest_timer_chronometer, true);
 
         NotificationCompat.Builder builder = new NotificationCompat.Builder(getContext(), CHANNEL_ID)
             .setContentTitle(title)
@@ -47,12 +56,11 @@ public class RestTimerPlugin extends Plugin {
             .setSmallIcon(R.mipmap.ic_launcher)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
-            .setUsesChronometer(true)
-            .setChronometerCountDown(true)
-            .setWhen(endAt)
-            .setShowWhen(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
-            .setCategory(NotificationCompat.CATEGORY_STOPWATCH);
+            .setCategory(NotificationCompat.CATEGORY_STOPWATCH)
+            .setCustomContentView(views)
+            .setCustomBigContentView(views)
+            .setStyle(new NotificationCompat.DecoratedCustomViewStyle());
 
         NotificationManager nm = (NotificationManager) getContext().getSystemService(Context.NOTIFICATION_SERVICE);
         nm.notify(id, builder.build());
